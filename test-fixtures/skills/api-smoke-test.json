@@ -1,0 +1,5 @@
+{
+  "name": "api-smoke-test",
+  "description": "Design a small API smoke-test checklist from an endpoint contract.",
+  "content": "# 使用场景\n\nCreate a compact smoke-test checklist for the provided API contract.\n\n## 检查范围\n\n- Happy path\n- Validation failure\n- Not found behavior\n- Concurrency or idempotency notes when documented\n\nSeparate proposed checks from executed checks."
+}

@@ -1,0 +1,5 @@
+{
+  "name": "java-code-review",
+  "description": "Review Java changes for correctness, maintainability, and focused regression risks.",
+  "content": "# 使用场景\n\nReview a Java diff and return findings ordered by severity.\n\n## 约束\n\n- Focus on concrete defects and missing tests.\n- Explain the affected behavior and a minimal fix.\n- Do not claim tests were run unless evidence is provided."
+}

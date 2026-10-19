@@ -1,0 +1,55 @@
+services:
+  mysql:
+    image: mysql:8.4.6
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:?Set DB_NAME}
+      MYSQL_USER: ${DB_USER:?Set DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      TZ: UTC
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_bin", "--default-time-zone=+00:00"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql --protocol=TCP -h 127.0.0.1 -u\"$$MYSQL_USER\" \"$$MYSQL_DATABASE\" -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+  backend:
+    image: skill-platform-backend:1.0.0
+    build: ./backend
+    environment:
+      DB_HOST: mysql
+      DB_NAME: ${DB_NAME:?Set DB_NAME}
+      DB_USER: ${DB_USER:?Set DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?Set ALLOWED_ORIGINS}
+      TZ: UTC
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "java", "-cp", "/app", "Healthcheck"]
+      interval: 10s
+      timeout: 8s
+      retries: 15
+      start_period: 60s
+    restart: unless-stopped
+  frontend:
+    image: skill-platform-frontend:1.0.0
+    build: ./frontend
+    ports:
+      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-8088}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+volumes:
+  mysql_data:

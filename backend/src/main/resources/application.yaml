@@ -1,0 +1,53 @@
+spring:
+  session:
+    timeout: ${SESSION_TIMEOUT:30m}
+    jdbc:
+      initialize-schema: never
+  datasource:
+    url: jdbc:mysql://${DB_HOST:mysql}:3306/${DB_NAME}?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8&useAffectedRows=false
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    hikari:
+      initialization-fail-timeout: 60000
+      connection-timeout: 10000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    connect-retries: 10
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+      accept-float-as-int: false
+    mapper:
+      allow-coercion-of-scalars: false
+server:
+  port: 8080
+  servlet:
+    session:
+      tracking-modes: cookie
+      cookie:
+        http-only: true
+        same-site: lax
+        path: /
+        secure: ${SESSION_COOKIE_SECURE:false}
+  error:
+    include-message: never
+    include-stacktrace: never
+  max-http-request-header-size: 16KB
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+app:
+  allowed-origins: ${ALLOWED_ORIGINS}
+
+  admin-username: ${ADMIN_USERNAME:}
+  admin-password: ${ADMIN_INITIAL_PASSWORD:}

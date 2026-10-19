@@ -1,0 +1,5 @@
+{
+  "name": "minimal-test-skill",
+  "description": "A tiny skill used to test create, edit, publish, unpublish, and delete flows.",
+  "content": "# Test Skill\n\nReturn a short answer and clearly label assumptions."
+}

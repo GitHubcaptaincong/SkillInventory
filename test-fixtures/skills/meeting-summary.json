@@ -1,0 +1,5 @@
+{
+  "name": "meeting-summary",
+  "description": "Turn meeting notes into decisions, action items, owners, and unresolved questions.",
+  "content": "# 使用场景\n\nSummarize supplied meeting notes without inventing decisions.\n\n## 输出\n\n- Decisions\n- Action items with owner and due date when stated\n- Open questions\n- Evidence gaps"
+}
