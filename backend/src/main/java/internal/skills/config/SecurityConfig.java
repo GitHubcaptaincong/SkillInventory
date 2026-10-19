@@ -1,4 +1,7 @@
-package internal.skills;
+package internal.skills.config;
+
+import internal.skills.dto.Contracts;
+import internal.skills.service.ApiKeys;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.*;
@@ -21,13 +24,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 @Configuration
-class SecurityConfig {
+public class SecurityConfig {
     static void error(ObjectMapper mapper, HttpServletRequest req, HttpServletResponse res, int status, String code, String message) throws IOException {
         res.setStatus(status); res.setContentType("application/json;charset=UTF-8"); res.setHeader("Cache-Control", "no-store");
         mapper.writeValue(res.getOutputStream(), new Contracts.Error(code, message, String.valueOf(req.getAttribute("requestId"))));
     }
     @Bean PasswordEncoder passwords() { return new BCryptPasswordEncoder(12); }
-    @Bean ApplicationRunner initialize(JdbcTemplate jdbc, PasswordEncoder encoder,
+    @Bean public ApplicationRunner initialize(JdbcTemplate jdbc, PasswordEncoder encoder,
             @Value("${app.admin-username}") String username, @Value("${app.admin-password}") String password) {
         return args -> {
             if (jdbc.queryForObject("SELECT COUNT(*) FROM administrator", Integer.class) != 0) return;

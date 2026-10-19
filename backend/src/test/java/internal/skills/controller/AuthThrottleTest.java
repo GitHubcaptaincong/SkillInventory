@@ -1,4 +1,6 @@
-package internal.skills;
+package internal.skills.controller;
+
+import internal.skills.exception.ApiException;
 
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;
@@ -12,10 +14,10 @@ class AuthThrottleTest {
         var controller=new AuthController(manager,null,null);
         for(int i=0;i<20;i++) {
             assertThatThrownBy(() -> controller.login(new AuthController.Login("unknown","test-password"),null,null))
-                .isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.status).isEqualTo(401));
+                .isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getStatus()).isEqualTo(401));
         }
         assertThatThrownBy(() -> controller.login(new AuthController.Login("unknown","test-password"),null,null))
-            .isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.status).isEqualTo(429));
+            .isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getStatus()).isEqualTo(429));
         verify(manager,times(20)).authenticate(any());
     }
 }

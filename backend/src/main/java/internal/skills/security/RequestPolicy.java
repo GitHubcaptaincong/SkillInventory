@@ -1,4 +1,6 @@
-package internal.skills;
+package internal.skills.security;
+
+import internal.skills.dto.Contracts;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.*;
@@ -15,8 +17,8 @@ import java.util.*;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
-class RequestPolicy extends OncePerRequestFilter {
-    static final int MAX_BODY = 2 * 1024 * 1024;
+public class RequestPolicy extends OncePerRequestFilter {
+    public static final int MAX_BODY = 2 * 1024 * 1024;
     private final Set<String> allowed;
     private final ObjectMapper mapper;
     RequestPolicy(@Value("${app.allowed-origins}") String origins, ObjectMapper mapper) {

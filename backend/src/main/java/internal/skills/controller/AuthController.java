@@ -1,4 +1,6 @@
-package internal.skills;
+package internal.skills.controller;
+
+import internal.skills.exception.ApiException;
 
 import jakarta.servlet.http.*;
 import jakarta.validation.Valid;
@@ -14,7 +16,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
-class AuthController {
+public class AuthController {
     private final AuthenticationManager manager;
     private final SecurityContextRepository contexts;
     private final SessionAuthenticationStrategy sessions;

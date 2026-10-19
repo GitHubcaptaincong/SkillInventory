@@ -1,4 +1,9 @@
-package internal.skills;
+package internal.skills.service;
+
+import internal.skills.domain.Skill;
+import internal.skills.repository.SkillRepository;
+import internal.skills.exception.ApiException;
+import internal.skills.support.SkillMd;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,55 +19,54 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Set;
-import static internal.skills.Contracts.*;
+import static internal.skills.dto.Contracts.*;
 
 @Service
 @Transactional(readOnly = true)
-class SkillService {
+public class SkillService {
     private final SkillRepository repository;
     private final EntityManager em;
     private final ObjectMapper mapper;
     private final SkillMd md;
-    SkillService(SkillRepository repository, EntityManager em, ObjectMapper mapper, SkillMd md) {
+    public SkillService(SkillRepository repository, EntityManager em, ObjectMapper mapper, SkillMd md) {
         this.repository = repository; this.em = em; this.mapper = mapper; this.md = md;
     }
     Skill get(long id) { return repository.findById(id).orElseThrow(ApiException::missing); }
     Skill published(String name) { return repository.findByNameAndSnapshotIsNotNull(name).orElseThrow(ApiException::missing); }
-    Admin detail(long id) { return Admin.from(get(id)); }
+    public Admin detail(long id) { return Admin.from(get(id)); }
 
     @Transactional
-    Admin create(Create input) {
+    public Admin create(Create input) {
         SkillMd.validate(input.content());
-        Skill s = new Skill(); s.name = input.name(); s.description = input.description(); s.content = input.content();
-        s.createdAt = s.updatedAt = now();
+        Skill s = new Skill(input.name(), input.description(), input.content(), now());
         return Admin.from(repository.saveAndFlush(s));
     }
     @Transactional
-    Admin save(long id, Update input) {
+    public Admin save(long id, Update input) {
         SkillMd.validate(input.content());
         Skill s = checked(id, input.lockVersion());
-        boolean changed = !s.description.equals(input.description()) || !s.content.equals(input.content());
-        mutate(s, input.description(), input.content(), s.snapshot, changed);
+        boolean changed = !s.getDescription().equals(input.description()) || !s.getContent().equals(input.content());
+        mutate(s, input.description(), input.content(), s.getSnapshot(), changed);
         return detail(id);
     }
     @Transactional
-    Admin publish(long id, long version) {
-        Skill s = checked(id, version); SkillMd.validate(s.content);
+    public Admin publish(long id, long version) {
+        Skill s = checked(id, version); SkillMd.validate(s.getContent());
         boolean changed = !s.matchesSnapshot();
-        Skill.Published snapshot = changed ? new Skill.Published(s.name, s.description, s.content, next(version), now()) : s.snapshot;
-        mutate(s, s.description, s.content, snapshot, changed);
+        Skill.Published snapshot = changed ? new Skill.Published(s.getName(), s.getDescription(), s.getContent(), next(version), now()) : s.getSnapshot();
+        mutate(s, s.getDescription(), s.getContent(), snapshot, changed);
         return detail(id);
     }
     @Transactional
-    Admin unpublish(long id, long version) {
+    public Admin unpublish(long id, long version) {
         Skill s = checked(id, version);
-        mutate(s, s.description, s.content, null, s.snapshot != null);
+        mutate(s, s.getDescription(), s.getContent(), null, s.getSnapshot() != null);
         return detail(id);
     }
     @Transactional
-    void delete(long id, long version) {
+    public void delete(long id, long version) {
         Skill s = checked(id, version);
-        if (s.snapshot != null) throw new ApiException(409, "PUBLISHED_DELETE", "请先下架再删除");
+        if (s.getSnapshot() != null) throw new ApiException(409, "PUBLISHED_DELETE", "请先下架再删除");
         int count = em.createNativeQuery("DELETE FROM skill WHERE id=:id AND lock_version=:v AND published_snapshot IS NULL")
                 .setParameter("id", id).setParameter("v", version).executeUpdate();
         if (count != 1) throw ApiException.conflict();
@@ -70,7 +74,7 @@ class SkillService {
     }
     private Skill checked(long id, long version) {
         Skill s = get(id);
-        if (s.lockVersion != version) throw ApiException.conflict();
+        if (s.getLockVersion() != version) throw ApiException.conflict();
         return s;
     }
     private long next(long version) {
@@ -82,36 +86,36 @@ class SkillService {
         // The version predicate is part of the database write, including no-op requests.
         String sql = changed ? "UPDATE skill SET description=:d, content=:c, published_snapshot=:s, published_at=:p, updated_at=:u, lock_version=:n WHERE id=:id AND lock_version=:v"
                 : "UPDATE skill SET lock_version=lock_version WHERE id=:id AND lock_version=:v";
-        var q = em.createNativeQuery(sql).setParameter("id", s.id).setParameter("v", s.lockVersion);
+        var q = em.createNativeQuery(sql).setParameter("id", s.getId()).setParameter("v", s.getLockVersion());
         if (changed) {
             try {
                 q.setParameter("d", description).setParameter("c", content)
                     .setParameter("s", snapshot == null ? null : mapper.writeValueAsString(snapshot))
                     .setParameter("p", snapshot == null ? null : snapshot.publishedAt())
-                    .setParameter("u", now()).setParameter("n", next(s.lockVersion));
+                    .setParameter("u", now()).setParameter("n", next(s.getLockVersion()));
             } catch (JsonProcessingException e) { throw new IllegalStateException("Snapshot serialization failed", e); }
         }
         if (q.executeUpdate() != 1) throw ApiException.conflict();
         // MySQL REPEATABLE READ would otherwise return the earlier entity from the first-level cache.
         em.clear();
     }
-    Page<Admin> adminList(String keyword, String status, int page, int pageSize) {
+    public Page<Admin> adminList(String keyword, String status, int page, int pageSize) {
         var result = repository.findAll(filter(keyword, status, false), paging(page, pageSize));
         return new Page<>(result.map(Admin::from).getContent(), page, pageSize, result.getTotalElements());
     }
-    Page<Metadata> clientList(String keyword, int page, int pageSize) {
+    public Page<Metadata> clientList(String keyword, int page, int pageSize) {
         var result = repository.findAll(filter(keyword, null, true), paging(page, pageSize));
         return new Page<>(result.map(this::metadata).getContent(), page, pageSize, result.getTotalElements());
     }
     Metadata metadata(Skill s) {
-        var p = s.snapshot;
-        return new Metadata(s.id.toString(), p.name(), p.description(), p.publishedVersion(), p.publishedAt(), "/api/v1/skills/" + p.name() + "/SKILL.md");
+        var p = s.getSnapshot();
+        return new Metadata(s.getId().toString(), p.name(), p.description(), p.publishedVersion(), p.publishedAt(), "/api/v1/skills/" + p.name() + "/SKILL.md");
     }
-    Detail clientDetail(String name) {
+    public Detail clientDetail(String name) {
         Skill s = published(name); var m = metadata(s);
-        return new Detail(m.id(), m.name(), m.description(), m.publishedVersion(), m.publishedAt(), m.skillMdPath(), md.generate(s.snapshot));
+        return new Detail(m.id(), m.name(), m.description(), m.publishedVersion(), m.publishedAt(), m.skillMdPath(), md.generate(s.getSnapshot()));
     }
-    String raw(String name) { return md.generate(published(name).snapshot); }
+    public String raw(String name) { return md.generate(published(name).getSnapshot()); }
     private PageRequest paging(int page, int size) {
         if (page < 1 || page > 100000 || size < 1 || size > 100) throw ApiException.bad("page 为 1–100000，pageSize 为 1–100");
         return PageRequest.of(page - 1, size, Sort.by(Sort.Order.desc("updatedAt"), Sort.Order.desc("id")));

@@ -21,7 +21,7 @@
 主要依据：
 
 - [根目录 README](../README.md)、[API 契约](../docs/API.md)、[认证说明](../docs/AUTH.md)。
-- [业务实现](../backend/src/main/java/internal/skills/SkillService.java)、[认证配置](../backend/src/main/java/internal/skills/SecurityConfig.java)、[Key 实现](../backend/src/main/java/internal/skills/ApiKeys.java)。
+- [业务实现](../backend/src/main/java/internal/skills/service/SkillService.java)、[认证配置](../backend/src/main/java/internal/skills/config/SecurityConfig.java)、[Key 实现](../backend/src/main/java/internal/skills/service/ApiKeys.java)。
 - [V1 迁移](../backend/src/main/resources/db/migration/V1__create_skill.sql)、[V2 迁移](../backend/src/main/resources/db/migration/V2__authentication.sql)。
 - [Compose](../compose.yaml)、[后端配置](../backend/src/main/resources/application.yaml)、[前端入口](../frontend/src/main.ts)。
 

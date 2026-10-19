@@ -2,7 +2,7 @@
 
 管理每个 Skill 的一个 `SKILL.md`：创建草稿、编辑、手动发布、下架和删除。Vue 3 管理页面与 Spring Boot API 同域部署，MySQL 的 Skill 表保存草稿和当前发布快照。客户端始终读取已发布快照，编辑保存不会改变正在分发的内容。
 
-确认需求保留在 [skill-platform-codex-prompt.md](skill-platform-codex-prompt.md)，优先于旧方案。已增加单管理员登录及只读 API Key，完整说明见 [认证与运维](docs/AUTH.md)。不执行 Skill，无多文件、版本历史、Agent 或外部模型依赖。
+系统功能约定见 [系统功能说明](项目说明材料/01-系统功能说明.md)，认证增量需求见 [AUTH-REQUIREMENTS.md](docs/AUTH-REQUIREMENTS.md)。已增加单管理员登录及只读 API Key，完整说明见 [认证与运维](docs/AUTH.md)。不执行 Skill，无多文件、版本历史、Agent 或外部模型依赖。
 
 ## 启动
 

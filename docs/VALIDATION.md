@@ -2,6 +2,16 @@
 
 日期：2026-10-19（Asia/Shanghai）。仅本地隔离测试，未部署生产，未清空原有 Skill 数据或删除任何 Docker 卷。
 
+## 后端分包重构验证（2026-10-19）
+
+后端从单一 internal.skills 包拆分为 controller、service、repository、domain、dto、config、security、exception、support，启动类保留在根包。同文件中的控制器分开维护，测试同步归包；Skill 字段通过只读 getter 跨包访问，表结构、JSON 契约和接口路径不变。按要求删除 skill-platform-codex-prompt.md，并更新相关文档链接。
+
+实际从 backend 执行 `mvn -B -ntp -Dmaven.repo.local=.tools/m2 -s ../tools/maven-settings.xml clean test`（本机使用已安装的 JDK 21.0.5 / Maven 3.9.10）。先 clean 清除旧包 class，避免残留类影响 Spring 扫描。结果：**13 项通过，0 失败、0 错误、0 跳过**，真实 MySQL 8.4.6 Testcontainers，完成于 09:41:06 +08:00。日志保留于 `.test-output/package-refactor-tests.log`。
+
+另执行 `mvn -B -ntp -Dmaven.repo.local=.tools/m2 -s ../tools/maven-settings.xml -DskipTests package`，最终可执行 jar 打包通过；该命令复用前述已通过测试，不声称再次运行测试。日志在 `.test-output/package-refactor-build.log`。
+
+本轮未改前端、数据库迁移、Docker 或 API 规则，未重跑 Chrome/Docker 冒烟和生产部署；下方此前验证记录的执行范围保持原样。
+
 ## 当前认证版本
 
 - 后端：JDK 21.0.5、Maven 3.9.10、Testcontainers 1.21.4，真实 MySQL 8.4.6。**13 项通过，0 失败、0 错误、0 跳过**。保留全部原业务测试。

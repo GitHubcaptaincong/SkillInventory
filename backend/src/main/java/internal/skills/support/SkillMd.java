@@ -1,4 +1,7 @@
-package internal.skills;
+package internal.skills.support;
+
+import internal.skills.domain.Skill;
+import internal.skills.exception.ApiException;
 
 import org.springframework.stereotype.Component;
 import org.yaml.snakeyaml.DumperOptions;
@@ -8,8 +11,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 
 @Component
-class SkillMd {
-    static void validate(String content) {
+public class SkillMd {
+    public static void validate(String content) {
         if (content == null || content.isBlank()) throw ApiException.bad("content 不能为空白");
         if (content.getBytes(StandardCharsets.UTF_8).length > 256 * 1024)
             throw ApiException.bad("content 超过 256 KiB UTF-8 字节");
@@ -18,7 +21,7 @@ class SkillMd {
         if (first.equals("---")) throw ApiException.bad("content 不应包含文档级 YAML frontmatter");
     }
 
-    String generate(Skill.Published p) {
+    public String generate(Skill.Published p) {
         DumperOptions options = new DumperOptions();
         options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
         options.setSplitLines(false);

@@ -1,4 +1,7 @@
-package internal.skills;
+package internal.skills.support;
+
+import internal.skills.domain.Skill;
+import internal.skills.exception.ApiException;
 
 import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;

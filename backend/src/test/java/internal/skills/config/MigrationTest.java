@@ -1,4 +1,6 @@
-package internal.skills;
+package internal.skills.config;
+
+
 
 import org.junit.jupiter.api.Test;
 import org.flywaydb.core.Flyway;

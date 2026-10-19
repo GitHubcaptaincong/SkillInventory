@@ -1,4 +1,6 @@
-package internal.skills;
+package internal.skills.exception;
+
+import internal.skills.dto.Contracts;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -16,10 +18,10 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
-class Errors {
+public class Errors {
     private static final Logger LOG = LoggerFactory.getLogger(Errors.class);
     @ExceptionHandler(ApiException.class)
-    ResponseEntity<Contracts.Error> api(ApiException e, HttpServletRequest r) { return error(e.status, e.code, e.getMessage(), r); }
+    ResponseEntity<Contracts.Error> api(ApiException e, HttpServletRequest r) { return error(e.getStatus(), e.getCode(), e.getMessage(), r); }
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<Contracts.Error> duplicate(HttpServletRequest r) { return error(409, "NAME_CONFLICT", "name 已存在或数据发生冲突", r); }
     @ExceptionHandler({MethodArgumentNotValidException.class, ConstraintViolationException.class,

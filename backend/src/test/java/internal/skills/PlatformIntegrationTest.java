@@ -1,5 +1,11 @@
 package internal.skills;
 
+import internal.skills.config.SecurityConfig;
+import internal.skills.dto.ApiKeyContracts;
+import internal.skills.repository.SkillRepository;
+import internal.skills.security.RequestPolicy;
+import internal.skills.service.ApiKeys;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.*;
@@ -41,7 +47,7 @@ class PlatformIntegrationTest {
         raw = org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup(context)
             .addFilters(context.getBean(RequestPolicy.class), context.getBean("springSessionRepositoryFilter", jakarta.servlet.Filter.class))
             .apply(org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity()).build();
-        String key=keys.create(new ApiKeys.Input("business tests",null)).key();
+        String key=keys.create(new ApiKeyContracts.Input("business tests",null)).key();
         mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup(context)
             .addFilters(context.getBean(RequestPolicy.class), context.getBean("springSessionRepositoryFilter", jakarta.servlet.Filter.class))
             .apply(org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity())
@@ -249,7 +255,7 @@ class PlatformIntegrationTest {
         raw.perform(get("/api/auth/me").cookie(logged)).andExpect(status().isUnauthorized());
     }
     @Test void apiKeyBoundariesRevocationAndConditionalCaching() throws Exception {
-        var created=keys.create(new ApiKeys.Input("external",null)); String key=created.key();
+        var created=keys.create(new ApiKeyContracts.Input("external",null)); String key=created.key();
         for(String path:List.of("/api/v1/skills","/api/v1/skills/test","/api/v1/skills/test/SKILL.md")) {
             raw.perform(get(path)).andExpect(status().isUnauthorized());
             raw.perform(get(path).header("X-API-Key","invalid").header("If-None-Match","*"))
@@ -271,7 +277,7 @@ class PlatformIntegrationTest {
         assertThat(stored).hasSize(32).isNotEqualTo(key.getBytes());
         jdbc.update("UPDATE api_key SET expires_at=? WHERE id=?",java.sql.Timestamp.from(java.time.Instant.now().minusSeconds(1)),created.metadata().id());
         raw.perform(get("/api/v1/skills").header("X-API-Key",key).header("If-None-Match","*")).andExpect(status().isUnauthorized());
-        var second=keys.create(new ApiKeys.Input("rotate",null));
+        var second=keys.create(new ApiKeyContracts.Input("rotate",null));
         var first=keys.revoke(Long.parseLong(second.metadata().id()));
         assertThat(keys.revoke(Long.parseLong(second.metadata().id())).revokedAt()).isEqualTo(first.revokedAt());
         raw.perform(get("/api/v1/skills").header("X-API-Key",second.key()).header("If-None-Match","*")).andExpect(status().isUnauthorized());

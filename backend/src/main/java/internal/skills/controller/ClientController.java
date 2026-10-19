@@ -1,10 +1,11 @@
-package internal.skills;
+package internal.skills.controller;
+
+import internal.skills.service.SkillService;
+import internal.skills.exception.ApiException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import org.springframework.http.*;
 import org.springframework.validation.annotation.Validated;
@@ -14,65 +15,15 @@ import org.springframework.util.DigestUtils;
 
 import java.nio.charset.StandardCharsets;
 
-import static internal.skills.Contracts.*;
-
-@RestController
-@Validated
-@RequestMapping("/api/admin/skills")
-class AdminController {
-    private final SkillService service;
-
-    AdminController(SkillService service) {
-        this.service = service;
-    }
-
-    @GetMapping
-    Page<Admin> list(@RequestParam(required = false) String keyword, @RequestParam(required = false) String status,
-                     @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int pageSize) {
-        return service.adminList(keyword, status, page, pageSize);
-    }
-
-    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    @ResponseStatus(HttpStatus.CREATED)
-    Admin create(@Valid @RequestBody Create input) {
-        return service.create(input);
-    }
-
-    @GetMapping("/{id}")
-    Admin detail(@PathVariable @Min(1) long id) {
-        return service.detail(id);
-    }
-
-    @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
-    Admin save(@PathVariable @Min(1) long id, @Valid @RequestBody Update input) {
-        return service.save(id, input);
-    }
-
-    @PostMapping(value = "/{id}/publish", consumes = MediaType.APPLICATION_JSON_VALUE)
-    Admin publish(@PathVariable @Min(1) long id, @Valid @RequestBody Version input) {
-        return service.publish(id, input.lockVersion());
-    }
-
-    @PostMapping(value = "/{id}/unpublish", consumes = MediaType.APPLICATION_JSON_VALUE)
-    Admin unpublish(@PathVariable @Min(1) long id, @Valid @RequestBody Version input) {
-        return service.unpublish(id, input.lockVersion());
-    }
-
-    @DeleteMapping("/{id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    void delete(@PathVariable @Min(1) long id, @RequestParam @Min(0) long lockVersion) {
-        service.delete(id, lockVersion);
-    }
-}
 
 @RestController
 @Validated
 @RequestMapping("/api/v1/skills")
-class ClientController {
+public class ClientController {
     private final SkillService service;
     private final ObjectMapper mapper;
 
-    ClientController(SkillService service, ObjectMapper mapper) {
+    public ClientController(SkillService service, ObjectMapper mapper) {
         this.service = service;
         this.mapper = mapper;
     }
