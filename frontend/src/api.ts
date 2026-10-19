@@ -11,19 +11,22 @@ export class ApiError extends Error {
 }
 let csrf: {token: string; headerName: string} | null = null
 export async function refreshCsrf() {
-  const r = await fetch('/api/auth/csrf', { credentials: 'same-origin' })
+  const r = await fetch('/api/auth/csrf', { credentials: 'same-origin', signal: AbortSignal.timeout(30000) })
   if (!r.ok) throw new Error('无法获取 CSRF Token')
   csrf = await r.json()
 }
 export async function request<T>(path: string, method = 'GET', data?: unknown): Promise<T> {
   if (method !== 'GET' && !csrf) await refreshCsrf()
   const response = await fetch(path, {
-    method, credentials: 'same-origin', headers: method === 'GET' ? {} : { 'Content-Type': 'application/json', [csrf!.headerName]: csrf!.token },
+    method, credentials: 'same-origin', signal: AbortSignal.timeout(30000), headers: method === 'GET' ? {} : { 'Content-Type': 'application/json', [csrf!.headerName]: csrf!.token },
     body: data === undefined ? undefined : JSON.stringify(data),
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: '服务响应异常' }))
-    if (response.status === 401 && !path.startsWith('/api/auth/')) window.dispatchEvent(new Event('session-expired'))
+    if (response.status === 401) {
+      csrf = null
+      if (!path.startsWith('/api/auth/') || path === '/api/auth/me' || path === '/api/auth/logout') window.dispatchEvent(new Event('session-expired'))
+    }
     if (response.status === 403) { csrf = null; await refreshCsrf().catch(() => {}); }
     throw new ApiError(response.status, error.code ?? 'HTTP_ERROR', error.message, error.requestId ?? response.headers.get('X-Request-Id') ?? '')
   }
