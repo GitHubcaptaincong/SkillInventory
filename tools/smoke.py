@@ -1,72 +1,80 @@
-"""Public-entry API smoke; never connects directly to MySQL. No third-party packages."""
-import argparse
-import json
-import pathlib
-import urllib.request
-import urllib.error
-import uuid
+"""Isolated authenticated Nginx smoke; secrets remain in process memory, never printed."""
+import argparse, http.cookiejar, json, pathlib, subprocess, urllib.request, urllib.error, uuid
+p=argparse.ArgumentParser()
+p.add_argument('--base-url', default='http://127.0.0.1:18089')
+p.add_argument('--env-file', default='.test-output/auth-smoke.env')
+p.add_argument('--project', default='skillinventory-auth-smoke')
+p.add_argument('--restart', action='store_true')
+a=p.parse_args()
+env=dict(line.split('=',1) for line in pathlib.Path(a.env_file).read_text().splitlines() if line and not line.startswith('#'))
+jar=http.cookiejar.CookieJar(); browser=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+csrf=None; key=None
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--base-url', default='http://127.0.0.1:18088')
-parser.add_argument('--phase', choices=['before-restart', 'after-restart'], required=True)
-parser.add_argument('--state', default='.test-output/smoke-state.json')
-args = parser.parse_args()
-base = args.base_url.rstrip('/')
-state_path = pathlib.Path(args.state)
-
-def call(path, method='GET', body=None, expected=200, headers=None):
-    data = None if body is None else json.dumps(body, ensure_ascii=False).encode()
-    req = urllib.request.Request(base + path, data=data, method=method,
-        headers={'Content-Type': 'application/json', **(headers or {})})
-    try:
-        res = urllib.request.urlopen(req, timeout=30)
-    except urllib.error.HTTPError as error:
-        res = error
+def call(path, method='GET', body=None, expected=200, headers=None, cookies=True):
+    h={'Content-Type':'application/json',**(headers or {})}
+    if method!='GET' and csrf: h['X-CSRF-TOKEN']=csrf
+    if path.startswith('/api/v1/') and key and 'X-API-Key' not in h: h['X-API-Key']=key
+    req=urllib.request.Request(a.base_url+path, data=None if body is None else json.dumps(body).encode(),method=method,headers=h)
+    try: res=(browser if cookies else urllib.request.build_opener()).open(req,timeout=30)
+    except urllib.error.HTTPError as error: res=error
     with res:
-        raw = res.read()
-        assert res.status == expected, (method, path, res.status, raw[:250])
-        parsed = json.loads(raw) if raw and 'application/json' in res.headers.get('Content-Type', '') else raw.decode()
-        return parsed, dict(res.headers)
+        raw=res.read()
+        assert res.status==expected, (method,path,res.status,expected)  # never print sensitive response body
+        parsed=json.loads(raw) if raw and 'application/json' in res.headers.get('Content-Type','') else raw.decode()
+        if res.status>=400: assert res.headers.get('Cache-Control')=='no-store'
+        return parsed,dict(res.headers)
 
-def mutate(skill, operation):
-    return call('/api/admin/skills/' + skill['id'] + '/' + operation, 'POST', {'lockVersion': skill['lockVersion']})[0]
+def login():
+    global csrf
+    csrf=call('/api/auth/csrf')[0]['token']
+    call('/api/auth/login','POST',{'username':env['ADMIN_USERNAME'],'password':env['ADMIN_INITIAL_PASSWORD']})
+    csrf=call('/api/auth/csrf')[0]['token']
+    call('/api/auth/me')
 
-if args.phase == 'before-restart':
-    assert '<div id="app">' in call('/')[0]
-    assert '<div id="app">' in call('/skills/new')[0]  # history fallback
-    call('/api/not-an-api', expected=404)  # API errors do not become HTML
-    name = 'smoke-' + uuid.uuid4().hex[:12]
-    s, _ = call('/api/admin/skills', 'POST', {'name': name, 'description': '冒烟: 旧描述', 'content': '  # 旧正文\n'}, 201)
-    root = '/api/v1/skills/' + name
-    call(root, expected=404)
-    s = mutate(s, 'publish')
-    raw, headers = call(root + '/SKILL.md')
-    etag = headers.get('ETag') or headers.get('Etag')
-    assert etag and '# 旧正文' in raw
-    call(root + '/SKILL.md', expected=304, headers={'If-None-Match': etag})
-    s, _ = call('/api/admin/skills/' + s['id'], 'PUT', {'description': '未发布的新描述', 'content': '# 新正文', 'lockVersion': s['lockVersion']})
-    assert call(root + '/SKILL.md')[0] == raw
-    assert call(root)[0]['description'] == '冒烟: 旧描述'
-    call('/api/admin/skills/' + s['id'] + '?lockVersion=' + str(s['lockVersion']), 'DELETE', expected=409)
-    s = mutate(s, 'publish')
-    assert '# 新正文' in call(root + '/SKILL.md')[0]
-    s = mutate(s, 'unpublish')
-    call(root + '/SKILL.md', expected=404, headers={'If-None-Match': etag})
-    call(root, expected=404)
-    assert not any(item['name'] == name for item in call('/api/v1/skills')[0]['items'])
-    call('/api/admin/skills/' + s['id'] + '?lockVersion=' + str(s['lockVersion']), 'DELETE', expected=204)
-    s, _ = call('/api/admin/skills', 'POST', {'name': name, 'description': '重启持久化验证', 'content': '# 持久化正文'}, 201)
-    s = mutate(s, 'publish')
-    call('/api/admin/skills', 'POST', {}, 403, {'Origin': 'https://evil.invalid'})
-    call('/api/admin/skills', 'POST', {'name': 'too-large', 'description': 'x', 'content': 'x' * (2 * 1024 * 1024)}, 413)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(s, ensure_ascii=False), encoding='utf-8')
-    print('PASS: public-entry lifecycle, snapshot isolation, ETag, origins, 413, history/API routing. Persistence record retained for restart.')
-else:
-    s = json.loads(state_path.read_text(encoding='utf-8'))
-    actual = call('/api/admin/skills/' + s['id'])[0]
-    assert actual == s, (actual, s)
-    assert '# 持久化正文' in call('/api/v1/skills/' + s['name'] + '/SKILL.md')[0]
-    s = mutate(actual, 'unpublish')
-    call('/api/admin/skills/' + s['id'] + '?lockVersion=' + str(s['lockVersion']), 'DELETE', expected=204)
-    print('PASS: persisted draft and published snapshot survived container recreation; smoke record removed.')
+def mutate(s,op):return call('/api/admin/skills/'+s['id']+'/'+op,'POST',{'lockVersion':s['lockVersion']})[0]
+
+call('/api/admin/skills',expected=401);call('/api/v1/skills',expected=401)
+csrf=call('/api/auth/csrf')[0]['token']
+call('/api/auth/login','POST',{'username':env['ADMIN_USERNAME'],'password':'x'*100},401)
+login()
+created=call('/api/admin/api-keys','POST',{'name':'isolated smoke'},201)[0];key=created['key']
+assert key not in json.dumps(call('/api/admin/api-keys')[0])
+name='auth-smoke-'+uuid.uuid4().hex[:12]
+s=call('/api/admin/skills','POST',{'name':name,'description':'snapshot','content':'# original'},201)[0]
+root='/api/v1/skills/'+name
+call(root,expected=404,cookies=False)
+s=mutate(s,'publish')
+for path in ['/api/v1/skills',root,root+'/SKILL.md']:
+    _,h=call(path,cookies=False)
+    assert h.get('Cache-Control')=='private, no-cache'
+    tag=h.get('ETag') or h.get('Etag')
+    call(path,expected=304,headers={'If-None-Match':tag},cookies=False)
+    call(path,expected=401,headers={'If-None-Match':tag,'X-API-Key':'wrong'},cookies=False)
+s=call('/api/admin/skills/'+s['id'],'PUT',{'description':'unpublished','content':'# changed','lockVersion':s['lockVersion']})[0]
+assert call(root+'/SKILL.md',cookies=False)[0].endswith('# original')
+call('/api/admin/skills','POST',{},403,{'Origin':'https://evil.invalid'})
+if a.restart:
+    # Same process retains the key in RAM across container recreation; no plaintext key file.
+    command=['docker','compose','--env-file',a.env_file,'-p',a.project]
+    subprocess.run(command+['down'],check=True,stdout=subprocess.DEVNULL)
+    subprocess.run(command+['up','-d','--wait','--wait-timeout','240'],check=True,stdout=subprocess.DEVNULL)
+    call('/api/auth/me')  # persistent server session
+    login()  # original credentials still valid
+    assert call('/api/admin/skills/'+s['id'])[0]==s
+    assert call(root+'/SKILL.md',cookies=False)[0].endswith('# original')
+s=mutate(s,'unpublish');call(root,expected=404,cookies=False)
+s=mutate(s,'publish')
+call('/api/admin/api-keys/'+created['metadata']['id']+'/revoke','POST',{})
+call('/api/admin/api-keys/'+created['metadata']['id']+'/revoke','POST',{})
+call(root,expected=401,headers={'If-None-Match':'*'},cookies=False)
+call('/api/auth/logout','POST',{},204)
+call('/api/auth/me',expected=401)
+command=['docker','compose','--env-file',a.env_file,'-p',a.project]
+logs=subprocess.run(command+['logs','--no-color'],capture_output=True,check=True).stdout
+for value in [key,env['ADMIN_INITIAL_PASSWORD'],env['DB_PASSWORD'],env['MYSQL_ROOT_PASSWORD']]:
+    assert value.encode() not in logs, 'Credential unexpectedly present in service logs'
+dump=subprocess.run(command+['exec','-T','mysql','sh','-c','MYSQL_PWD="$MYSQL_PASSWORD" mysqldump -u"$MYSQL_USER" --no-tablespaces "$MYSQL_DATABASE"'],capture_output=True,check=True).stdout
+assert key.encode() not in dump, 'Plaintext API Key unexpectedly persisted'
+assert env['ADMIN_INITIAL_PASSWORD'].encode() not in dump, 'Plaintext admin password unexpectedly persisted'
+print('PASS: log/database plaintext credential absence')
+print('PASS: Nginx login, CSRF, lifecycle, snapshot isolation, API Key/ETag, revoke, logout'+(', down/up persistence including session' if a.restart else ''))

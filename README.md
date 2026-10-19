@@ -1,8 +1,8 @@
 # 内部 Skill 管理与分发平台
 
-管理每个 Skill 的一个 `SKILL.md`：创建草稿、编辑、手动发布、下架和删除。Vue 3 管理页面与 Spring Boot API 同域部署，MySQL 单业务表保存草稿和当前发布快照。客户端始终读取已发布快照，编辑保存不会改变正在分发的内容。
+管理每个 Skill 的一个 `SKILL.md`：创建草稿、编辑、手动发布、下架和删除。Vue 3 管理页面与 Spring Boot API 同域部署，MySQL 的 Skill 表保存草稿和当前发布快照。客户端始终读取已发布快照，编辑保存不会改变正在分发的内容。
 
-确认需求保留在 [skill-platform-codex-prompt.md](skill-platform-codex-prompt.md)，优先于旧方案。没有登录、权限、执行 Skill、多文件、版本历史、Agent 或外部模型依赖。
+确认需求保留在 [skill-platform-codex-prompt.md](skill-platform-codex-prompt.md)，优先于旧方案。已增加单管理员登录及只读 API Key，完整说明见 [认证与运维](docs/AUTH.md)。不执行 Skill，无多文件、版本历史、Agent 或外部模型依赖。
 
 ## 启动
 
@@ -10,7 +10,7 @@
 
 ```powershell
 Copy-Item .env.example .env
-# 编辑 .env：设置两项独立随机密码；检查端口和 ALLOWED_ORIGINS
+# 编辑 .env：设置数据库独立随机密码、ADMIN_USERNAME 和 ADMIN_INITIAL_PASSWORD（至少 12 字符、至多 72 UTF-8 字节）；检查端口和 ALLOWED_ORIGINS
 docker compose config --quiet
 docker compose up --build -d --wait --wait-timeout 240
 docker compose ps
@@ -24,11 +24,11 @@ docker compose logs --tail 100 backend
 ## 实现与边界
 
 - 固定 Spring Boot **3.5.16**、Java **21**、Spring Data JPA、Flyway **11.16.0**、MySQL **8.4.6**。固定前端包版本和 `package-lock.json`，Docker 构建使用 Node **22.20.0**、Nginx **1.28.0**。完整镜像标签见 Dockerfile / compose.yaml。
-- `skill` 唯一业务表，Flyway 额外维护迁移元数据表。`published_snapshot` 为 MySQL JSON，内容只由服务端构造。数据库 utf8mb4 二进制比较，时间统一 UTC DATETIME(6)，API 返回带时区时间。
+- `skill` 保存业务内容；V2 新增管理员、API Key 和 Spring Session JDBC 表，Flyway 维护迁移元数据表。`published_snapshot` 为 MySQL JSON，内容只由服务端构造。数据库 utf8mb4 二进制比较，时间统一 UTC DATETIME(6)，API 返回带时区时间。
 - 状态从草稿与快照计算；不保存状态列。发布版本复用发布后的单调 lockVersion。所有变更通过 `WHERE id=? AND lock_version=?` 条件写入，版本冲突为 409。无实质变更也用数据库条件更新验证版本，但不增加版本或发布时间。
 - YAML 通过 SnakeYAML 序列化 name、description，正文原样追加。Markdown 原始 HTML 禁用，渲染后经 DOMPurify 清洗。部署 CSP 进一步限制远程资源，正文不执行、不抓取 URL。
 - 请求上限 Nginx 和后端均 2 MiB；正文另限 256 KiB UTF-8。仅写接口接受 JSON。精确 Origin 白名单及跨站写入拒绝在服务端执行；无 Origin 的直接内网 HTTP 调用允许。
-- 无登录和鉴权，**Origin/CORS、输入校验不构成身份认证**。安全依赖受控内网；任何能直接访问管理接口的人均有管理能力。不要将本版直接公开到互联网。
+- 管理接口需管理员会话，写操作需 CSRF；外部客户端需 X-API-Key。继续部署在受控网络，跨不可信网络必须使用 HTTPS，启用 Secure Cookie。
 - 首版应用数据库账号由官方 MySQL 初始化脚本创建，仅对业务数据库授权。其权限同时包含 Flyway 建表/变更权限，不使用 root 运行应用；无需全局权限。此首版未拆分迁移与运行账号。
 - 下架只停止后续服务端分发，无法撤销已下载副本；客户端负责缓存与数据清理，每次取用应按 ETag 重验证。
 - BIGINT id 是字符串；lockVersion/publishedVersion 是 JSON 整数。极端超出 JS 安全整数范围的版本不在首版运行范围内。
@@ -40,13 +40,13 @@ docker compose logs --tail 100 backend
 完整字段、分页、状态码、错误、并发及调用例子见 [API 契约](docs/API.md)。客户端示例：
 
 ```sh
-curl -i 'http://localhost:8088/api/v1/skills?page=1&pageSize=20'
-curl -i 'http://localhost:8088/api/v1/skills/java-code-review'
-curl -i 'http://localhost:8088/api/v1/skills/java-code-review/SKILL.md'
-curl -i -H 'If-None-Match: "上次响应的标签"' 'http://localhost:8088/api/v1/skills/java-code-review/SKILL.md'
+curl -i -H 'X-API-Key: <从安全配置读取的Key>' 'http://localhost:8088/api/v1/skills?page=1&pageSize=20'
+curl -i -H 'X-API-Key: <从安全配置读取的Key>' 'http://localhost:8088/api/v1/skills/java-code-review'
+curl -i -H 'X-API-Key: <从安全配置读取的Key>' 'http://localhost:8088/api/v1/skills/java-code-review/SKILL.md'
+curl -i -H 'X-API-Key: <从安全配置读取的Key>' -H 'If-None-Match: "上次响应的标签"' 'http://localhost:8088/api/v1/skills/java-code-review/SKILL.md'
 ```
 
-客户端读取成功为 `Cache-Control: no-cache`，错误 `no-store`。不存在、未发布或下架均 404，旧 ETag 不能使已下架资源返回 304。元数据列表不含正文和草稿字段；JSON 详情额外提供完整 `skillMd`。复制原文绝对地址由页面使用自身 origin 组装，不接受任意 Host 构造外链。
+客户端读取成功为 `Cache-Control: private, no-cache`，错误 `no-store`。不存在、未发布或下架均 404，旧 ETag 不能使已下架资源返回 304。元数据列表不含正文和草稿字段；JSON 详情额外提供完整 `skillMd`。复制原文绝对地址由页面使用自身 origin 组装，不接受任意 Host 构造外链。
 
 ## 日常运维与升级
 
@@ -111,23 +111,19 @@ npx playwright test
 
 浏览器测试默认连接 `http://127.0.0.1:18088`，可用 `E2E_BASE_URL` 修改；测试只创建随机 name 的记录。
 
-`tools/maven-settings.xml` 是空白 Maven Central 配置，避免用户全局私有 mirror 影响复现。开发运行 backend 时提供 `DB_HOST, DB_NAME, DB_USER, DB_PASSWORD, ALLOWED_ORIGINS`，再 `mvn spring-boot:run`；前端 `npm run dev` 代理 `/api` 到本机 8080，允许的开发 origin 需显式加入 `http://127.0.0.1:5173`。
+`tools/maven-settings.xml` 是空白 Maven Central 配置，避免用户全局私有 mirror 影响复现。开发运行 backend 时提供 `DB_HOST, DB_NAME, DB_USER, DB_PASSWORD, ALLOWED_ORIGINS, ADMIN_USERNAME, ADMIN_INITIAL_PASSWORD`，再 `mvn spring-boot:run`；前端 `npm run dev` 代理 `/api` 到本机 8080，允许的开发 origin 需显式加入 `http://127.0.0.1:5173`。
 
-在独立测试项目执行 Docker 冒烟（Python 3.10+，无第三方依赖；端口 18088）：
+在独立测试项目执行 Docker 冒烟（新卷、18089 端口；Key 仅保留在进程内存）：
 
 ```sh
 python tools/new-test-env.py
-docker compose --env-file .test-output/smoke.env -p skillinventory-smoke config --quiet
-docker compose --env-file .test-output/smoke.env -p skillinventory-smoke up --build -d --wait --wait-timeout 240
-docker compose --env-file .test-output/smoke.env -p skillinventory-smoke ps
-python tools/smoke.py --phase before-restart
-docker compose --env-file .test-output/smoke.env -p skillinventory-smoke down
-docker compose --env-file .test-output/smoke.env -p skillinventory-smoke up -d --wait --wait-timeout 240
-python tools/smoke.py --phase after-restart
-docker compose --env-file .test-output/smoke.env -p skillinventory-smoke stop
+docker compose --env-file .test-output/auth-smoke.env -p skillinventory-auth-smoke config --quiet
+docker compose --env-file .test-output/auth-smoke.env -p skillinventory-auth-smoke up --build -d --wait --wait-timeout 240
+python tools/smoke.py --restart
+docker compose --env-file .test-output/auth-smoke.env -p skillinventory-auth-smoke stop
 ```
 
-生成器拒绝覆盖已有测试配置；复用已有文件可跳过第一步。测试只操作随机 name 的新记录，不触碰其他项目和数据。测试卷保留以便检查，脚本不会删除卷。不要并发对同一个测试项目跑冒烟。
+生成器拒绝覆盖配置。冒烟中的 down/up 仅针对显式独立项目，保留命名卷，不执行 down -v。请勿传入生产项目。浏览器测试设置 E2E_BASE_URL=http://127.0.0.1:18089，并使用 E2E_ADMIN_USERNAME / E2E_ADMIN_PASSWORD 环境变量或本地测试配置。
 
 实际执行结果、环境阻碍、未验证项见 [验证记录](docs/VALIDATION.md)。JSDOM 组件测试不等同真实浏览器人工验收，测试环境通过不代表生产部署或用户验收。
 

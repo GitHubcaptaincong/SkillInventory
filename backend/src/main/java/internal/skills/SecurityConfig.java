@@ -7,6 +7,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.*;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.userdetails.*;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -57,19 +58,27 @@ class SecurityConfig {
             .requestCache(c -> c.disable()).authorizeHttpRequests(a -> a.anyRequest().permitAll());
         http.addFilterBefore(new OncePerRequestFilter() {
             protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, jakarta.servlet.FilterChain chain) throws jakarta.servlet.ServletException, IOException {
-                if (!keys.valid(req.getHeader("X-API-Key"))) { error(mapper, req,res,401,"UNAUTHORIZED","有效 API Key 必填"); return; }
+                boolean valid;
+                try { valid=keys.valid(req.getHeader("X-API-Key")); }
+                catch (RuntimeException e) { error(mapper,req,res,500,"INTERNAL_ERROR","认证服务暂时不可用"); return; }
+                if (!valid) { error(mapper, req,res,401,"UNAUTHORIZED","有效 API Key 必填"); return; }
                 chain.doFilter(req,res);
             }
         }, org.springframework.security.web.authentication.AnonymousAuthenticationFilter.class);
         return http.build();
     }
     @Bean SecurityFilterChain admin(HttpSecurity http, ObjectMapper mapper, SecurityContextRepository contexts) throws Exception {
+        org.springframework.security.web.access.AccessDeniedHandler denied = (q,r,x) -> {
+            var auth=org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            boolean missingAdmin=q.getRequestURI().startsWith("/api/admin/") && (auth==null || !auth.getAuthorities().stream().anyMatch(v -> v.getAuthority().equals("ROLE_ADMIN")));
+            error(mapper,q,r,missingAdmin?401:403,missingAdmin?"UNAUTHORIZED":"FORBIDDEN",missingAdmin?"请先登录":"权限不足或 CSRF Token 无效");
+        };
         http.securityContext(s -> s.securityContextRepository(contexts))
             .requestCache(c -> c.disable())
             .authorizeHttpRequests(a -> a.requestMatchers("/api/auth/csrf", "/api/auth/login", "/actuator/health").permitAll()
                 .requestMatchers("/api/admin/**", "/api/auth/me", "/api/auth/logout").hasRole("ADMIN").anyRequest().denyAll())
             .exceptionHandling(e -> e.authenticationEntryPoint((q,r,x) -> error(mapper,q,r,401,"UNAUTHORIZED","请先登录"))
-                .accessDeniedHandler((q,r,x) -> error(mapper,q,r,403,"FORBIDDEN","权限不足或 CSRF Token 无效")))
+                .accessDeniedHandler(denied))
             .logout(l -> l.logoutRequestMatcher(new AntPathRequestMatcher("/api/auth/logout", "POST"))
                 .logoutSuccessHandler((q,r,a) -> { r.setStatus(204); r.setHeader("Cache-Control","no-store"); }).deleteCookies("SESSION"));
         return http.build();

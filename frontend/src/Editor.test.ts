@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, it, expect, vi } from 'vitest'
+import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import Editor from './Editor.vue'
@@ -13,6 +13,10 @@ async function setup(path: string) {
   const wrapper = mount(Editor, { global: { plugins: [router] } }); await flushPromises()
   return { wrapper, router }
 }
+beforeEach(async () => {
+ vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({token:'test-csrf',headerName:'X-CSRF-TOKEN'}))))
+ await (await import('./api')).refreshCsrf()
+})
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 describe('编辑流程', () => {
   it('409 冲突后保留输入并提示刷新，阻止继续覆盖', async () => {

@@ -1,5 +1,7 @@
 # 内部 Skill 平台 Codex 开发提示词
 
+认证增量要求以 [AUTH-REQUIREMENTS.md](docs/AUTH-REQUIREMENTS.md) 为准，认证接口与运维见 [AUTH.md](docs/AUTH.md)。
+
 你是一名负责交付的全栈工程师。请在当前仓库实现一个轻量、可运行的公司内部 Skill 管理与分发平台，交付实际代码、数据库迁移、测试、Docker 部署和文档。
 
 ## 一 工作方式
@@ -16,12 +18,12 @@
 - Java 建议使用 21；Spring Boot、MySQL、Node 等选择相互兼容、受支持的稳定版本，并固定实际版本或镜像标签。开始实施时检查官方兼容说明，不使用 latest 标签。
 - 数据访问优先复用仓库方案；空仓库选择 Spring Data JPA 或 MyBatis 其中一种，不同时引入两套。
 - 前端、后端、MySQL 均通过 Docker Compose 管理。
-- 仅在受控公司内网使用。不做登录、账户、admin 角色、权限、审批或 API Key；所有可访问人员具有相同管理能力。管理接口路径的 admin 只是功能分组。
+- 仅在受控网络使用。单管理员通过服务端持久会话登录管理；外部三个客户端接口必须使用只读 API Key。认证增量需求见 docs/AUTH.md。不做注册、多角色或审批。
 - 每个 Skill 仅管理一个 SKILL.md，不支持附属脚本、资料、图片、ZIP 或其他文件。
 - 支持创建、查看、编辑、保存草稿、手动发布、下架和删除。
 - 客户端只读取已发布快照。
 - 不做历史版本、回滚、回收站、MCP Server、客户端 SDK、Skill 执行或 Agent 编排。
-- 单体后端、一个业务表，不增加 Redis、消息队列、搜索服务或对象存储。允许迁移工具维护自身的元数据表。
+- 单体后端、Skill 业务表以及管理员、API Key 和持久会话表，不增加 Redis、消息队列、搜索服务或对象存储。允许迁移工具维护自身的元数据表。
 
 ## 三 Skill 编辑与生成规则
 
@@ -44,7 +46,7 @@ description: 检查 Java 后端代码中的常见问题。
 
 不执行正文中的命令、脚本或模板表达式，不抓取其中的 URL。
 
-## 四 单表与生命周期
+## 四 Skill 数据与生命周期
 
 业务表 skill 建议包含：
 - id：BIGINT 主键，JSON 返回字符串。
@@ -129,7 +131,7 @@ GET /api/v1/skills/{name}/SKILL.md
 缓存：
 - 客户端列表、JSON 详情、原文均提供基于各自实际响应内容的 ETag，支持 If-None-Match/304。
 - 列表 ETag 覆盖实际筛选和分页结果，不能只用一个 Skill 的更新时间代替。
-- 使用 Cache-Control: no-cache；错误响应 no-store。
+- 使用 Cache-Control: private, no-cache；错误响应 no-store。
 - 先确认存在且已发布，再判断条件缓存。
 - 处理标准 HTTP 条件头语义，优先使用框架支持。
 - 第一版不引入应用业务缓存和 Redis，避免发布、下架后的失效复杂度。
@@ -161,7 +163,7 @@ GET /api/v1/skills/{name}/SKILL.md
 2. Markdown 禁用原始 HTML，并使用维护中的清洗库处理渲染结果，过滤脚本、事件属性及 javascript: 等危险协议；不要用简单正则充当 HTML 清洗。
 3. 写接口只接受 application/json，拒绝 form/text/plain 等不符合契约的媒体类型；GET 不修改数据。
 4. 默认同域部署，开发跨域仅允许显式配置的来源，不使用通配符。
-5. 不只配置 CORS：服务端实际拒绝带有未允许 Origin 的写请求，并结合 Sec-Fetch-Site 等信号拒绝浏览器跨站写入；同源浏览器请求正常可用，无 Origin 的内网直接 HTTP 调用按既定无鉴权范围允许。健康检查不受写入策略影响。
+5. 不只配置 CORS：服务端实际拒绝带有未允许 Origin 的写请求，并结合 Sec-Fetch-Site 等信号拒绝浏览器跨站写入；同源浏览器请求正常可用，无 Origin 的内网直接 HTTP 调用仍必须通过会话与 CSRF 或 API Key 认证。健康检查不受写入策略影响。
 6. 部署时显式配置合法管理页面 origin；配置错误应有清楚诊断，不能为了省事默认全部允许。
 7. 校验 path 参数，不读写服务器任意路径，不执行内容，不提供远程 URL 抓取。
 8. 请求体上限建议 2 MiB，与前端 Nginx 和后端保持一致；正文另行校验 256 KiB UTF-8 字节上限。

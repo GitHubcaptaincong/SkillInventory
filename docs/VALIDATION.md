@@ -1,4 +1,80 @@
-# 实际验证记录
+# 实际验证记录：管理员与 API Key 首版
+
+日期：2026-10-19（Asia/Shanghai）。仅本地隔离测试，未部署生产，未清空原有 Skill 数据或删除任何 Docker 卷。
+
+## 当前认证版本
+
+- 后端：JDK 21.0.5、Maven 3.9.10、Testcontainers 1.21.4，真实 MySQL 8.4.6。**13 项通过，0 失败、0 错误、0 跳过**。保留全部原业务测试。
+- 前端：`npm test`，**11 项通过**；`npm run build`（vue-tsc + Vite）通过。
+- Chrome + 实际 Nginx/后端/MySQL：`npx playwright test`，**2 项通过**，验证登录、原 Skill 生命周期、快照隔离、安全 Markdown 预览、Key 一次展示/关闭清除/撤销、退出后管理接口 401。
+- 最终 Compose 构建、启动、健康检查通过，仅前端发布端口 `127.0.0.1:18089`。独立项目 `skillinventory-auth-smoke`，独立卷 `skillinventory-auth-smoke_mysql_data`，随机测试配置 `.test-output/auth-smoke.env` 被 Git 忽略。未操作已有 `skillinventory-smoke-20261019` 项目。
+- 经 Nginx 冒烟：登录 → 创建并发布 Skill → 创建 Key → 无 Cookie 外部读取三个端点 → ETag/304 → 保存草稿不改变快照 → down/up → 原会话、原管理员密码、原 Key 与 Skill 数据继续有效 → 下架/再发布 → 幂等撤销 → 携带旧 ETag 的外部读取 401 → 退出后会话失效。全部通过，Key 始终只保留在脚本内存，不写状态文件。
+- 后端容器实测 uid=999(app)，Nginx nginx -t 通过；未新增宿主数据库/后端端口。
+- 额外检查容器日志和数据库 dump（仅捕获到内存，不输出或保存 dump）：没有本次完整 API Key 或明文管理员密码；服务日志中无本次数据库密码。该检查覆盖测试运行的日志，不代表未来第三方代理/监控配置审计。
+
+## 覆盖证据
+
+| 要求 | 当前证据 |
+| --- | --- |
+| 未登录直接调用管理读/写均 401，Key 不替代管理员 | MockMvc + 真 MySQL；Nginx 冒烟 |
+| 正确/错误登录、会话 ID 更新、HttpOnly/Path/SameSite、退出、持久会话过期 | 真实 Session JDBC Cookie 请求链测试；不是 mock 登录代替该检查 |
+| BCrypt、环境变量不覆盖已有管理员 | MySQL 检查哈希匹配；重新执行初始化不变；down/up 后原密码登录 |
+| 并发初始化无重复 | 独立升级 MySQL 中并发两个初始化器，最终仅一个管理员 |
+| 缺失/错误 CSRF 拒绝，合法请求成功 | 真实登录会话测试；Vue Chrome 请求链 |
+| Origin / Sec-Fetch-Site、2 MiB 限制、415 | 原测试继续运行，来源检查保留 |
+| 原业务生命周期与乐观锁、并发写、分页、YAML | 原 MySQL 测试与 YAML 单测全保留 |
+| Key 缺失/错误/过期/撤销、query 不替代 Header、会话不替代 Key | MySQL 测试；三个客户端路径均检查 |
+| 有效 Key 不读草稿，发布后 JSON/列表/原文，304，下架 404 | MySQL 测试、Nginx 冒烟和 Chrome |
+| 撤销立即生效、重复幂等、旧 ETag 不绕过认证 | MySQL 测试和 Nginx 冒烟 |
+| Key 列表无明文、数据库仅摘要、日志无凭证 | MySQL 断言、Nginx 冒烟内存检查 |
+| V1 升级 V2 数据保留 | MigrationTest 先迁移至 V1、插入既有 ID/草稿/快照/版本，再执行 V2，前后内容一致 |
+| Spring Session 表结构匹配 | 从实际 spring-session-jdbc 3.5.7 jar 读取 schema-mysql.sql 核对，与 V2 会话部分一致 |
+| 登录失败节流上界 | AuthThrottleTest 20 次允许认证、21 次 429，未用客户端标识构造无界 map |
+| 会话失效反馈和表单保护 | Vue 组件测试检查提示和当前页面保留；现有编辑冲突保留输入测试；失效后不自动跳转或重放写请求 |
+
+## 可复现命令
+
+```powershell
+$env:JAVA_HOME='C:\Users\maijiancong\.jdks\corretto-21.0.5'
+# 在 backend 下，其他机器可直接用 mvn
+& 'C:\Users\maijiancong\.m2\wrapper\dists\apache-maven-3.9.10-bin\53h08a94dg6djh6umvruv7q564\apache-maven-3.9.10\bin\mvn.cmd' -B -ntp '-Dmaven.repo.local=.tools/m2' -s ../tools/maven-settings.xml test
+# 在 frontend 下
+npm test
+npm run build
+$env:BROWSER_CHANNEL='chrome'
+$env:E2E_BASE_URL='http://127.0.0.1:18089'
+npx playwright test
+# 仓库根目录；生成器仅首次运行，拒绝覆盖配置
+python tools/new-test-env.py
+docker compose --env-file .test-output/auth-smoke.env -p skillinventory-auth-smoke config --quiet
+docker compose --env-file .test-output/auth-smoke.env -p skillinventory-auth-smoke up --build -d --wait --wait-timeout 240
+python tools/smoke.py --restart
+```
+
+本次日志：`.test-output/auth-tests-final.log`、`auth-compose-final.log`、`auth-smoke-final.log`、`auth-smoke-credentials.log`、`auth-browser-final.log`；后端报告在 `backend/target/surefire-reports`。这些输出和测试配置不提交 Git。密码哈希维护工具 `tools/PasswordHash.java` 使用实际 Spring Security crypto jar 编译通过，未执行真实管理员密码重置。
+
+## 失败与修正
+
+1. 沙箱内无法访问 Docker 管道、Maven 下载 DNS 受限；通过授权提权后可运行，不以 H2 替代。
+2. 手工重建 MockMvc 初次遗漏 RequestPolicy 和 SessionRepositoryFilter，导致来源检查/请求体限制测试失败、会话 Cookie 缺失。已将真实两层过滤器加入测试装配，回归通过。
+3. 原 Vue fetch mock 未包含新 CSRF 请求，原 2 条编辑测试初次失败；已为测试取得 CSRF，保留原断言，回归通过。
+4. Chrome 测试首次与容器 down/up 重叠造成连接拒绝；之后又发现旧 URL 正则误匹配登录页 query 中的 `/`，过早发起 Key 创建请求。改为等待登录后的管理页面元素，再串行执行部署、重启冒烟和浏览器测试，两条通过。
+5. Spring Security provider 导入与 CSRF 配置 API 的编译问题均已修正；最终以真实编译和回归结果为准。
+
+## 未验证项与限制
+
+- 交付前已停止本次独立测试服务，保留命名卷和测试配置供复验。
+- 未执行生产部署、真实用户验收、HTTPS/TLS 代理环境的 Secure Cookie 端到端验证、多实例长时间运行、负载或渗透测试。
+- 密码重置提供受控维护步骤和工具；未在任何真实管理员数据库执行重置。数据库备份/恢复方案本轮未演练。
+- 会话失效后的输入保留已有组件检查；跨多个真实标签页的完整人工恢复流程、完整可访问性和不同浏览器兼容性尚未人工验收。
+- 登录节流按进程全局窗口，既不永久锁号也不引入 Redis；不是分布式公网防爆破方案。
+- Spring Security 6.5 的 AntPathRequestMatcher 有弃用警告，当前固定版本下可编译运行；升级框架时需迁移匹配器。Mockito/Node 测试工具警告不影响本次结果。
+
+---
+
+下方是认证改造前已存在的历史记录，**不作为当前认证版本的测试证据**，其旧命令和旧测试数量仅供追溯。当前使用上方命令与结果。
+
+# 认证改造前的历史验证记录
 
 执行日期：2026-10-19，Asia/Shanghai。范围是本地隔离测试环境，未执行生产部署，也不代表用户或客户验收。
 

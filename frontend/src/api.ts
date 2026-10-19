@@ -9,16 +9,28 @@ export interface Page<T> { items: T[]; page: number; pageSize: number; total: nu
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public requestId: string) { super(message) }
 }
-export async function api<T>(path = '', method = 'GET', data?: unknown): Promise<T> {
-  const response = await fetch('/api/admin/skills' + path, {
-    method, headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' },
+let csrf: {token: string; headerName: string} | null = null
+export async function refreshCsrf() {
+  const r = await fetch('/api/auth/csrf', { credentials: 'same-origin' })
+  if (!r.ok) throw new Error('无法获取 CSRF Token')
+  csrf = await r.json()
+}
+export async function request<T>(path: string, method = 'GET', data?: unknown): Promise<T> {
+  if (method !== 'GET' && !csrf) await refreshCsrf()
+  const response = await fetch(path, {
+    method, credentials: 'same-origin', headers: method === 'GET' ? {} : { 'Content-Type': 'application/json', [csrf!.headerName]: csrf!.token },
     body: data === undefined ? undefined : JSON.stringify(data),
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: '服务响应异常' }))
+    if (response.status === 401 && !path.startsWith('/api/auth/')) window.dispatchEvent(new Event('session-expired'))
+    if (response.status === 403) { csrf = null; await refreshCsrf().catch(() => {}); }
     throw new ApiError(response.status, error.code ?? 'HTTP_ERROR', error.message, error.requestId ?? response.headers.get('X-Request-Id') ?? '')
   }
   return response.status === 204 ? undefined as T : response.json()
+}
+export function api<T>(path = '', method = 'GET', data?: unknown): Promise<T> {
+  return request<T>('/api/admin/skills' + path, method, data)
 }
 export function message(error: unknown): string {
   if (error instanceof ApiError) return `${error.message}${error.requestId ? '（请求 ' + error.requestId + '）' : ''}`
